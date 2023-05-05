@@ -1,0 +1,516 @@
+/*
+Javascript plotter for Second order roulette or gear-in-hoop-in-wheel spirograph
+by glagolj
+
+https://glagolj.github.io/gg-blog/roulette/2022/03/14/second-order-roulette.html
+https://glagolj.github.io/gg-blog/tools/roulette_plot.html
+
+V1.00  2022/03/19      working version
+V1.01  2022/03/25
+V1.02  2022/04/01      improve frequency inversion
+V1.10  2022/04/10      add url with parameters
+
+LICENCE: MIT or GNU open source
+
+ */
+
+ /*
+ Modified for rapid image extraction of results by Spiromatt
+
+ V1.10 2023/04/23		Increased output size; removed URL from text
+
+/********************************************************************************/
+/********************************************************************************/
+/********************************************************************************/
+var canvas = document.getElementById('main');
+var ctx = canvas.getContext('2d');
+var params=document.params;
+var frqs_in=document.frqs;
+
+var n0=96;
+var n1=80;
+var n2=40;
+var n3=32;
+var h=0.4;
+var p=0.8;
+var phi_input=0;
+var phi=0;
+
+var win=60;
+var pltmax=99;
+
+var T1=1;
+var T3=1;
+var T=1;
+var nsymm=1;
+var hole_input=3;
+var hole=0.01;
+
+var modulo_mm = 1.0/50.0 * 27.07;  /* =0.54140000 */
+
+var pt_dens = 512; /* =~ plot density */
+
+var linwid = 1;
+
+var xmax,ymax;
+
+/********************************************************************************/
+function canvas_resize()
+{
+  // win = Math.max( window.innerWidth*2, window.innerHeight*2);
+  win = Math.max( window.innerWidth, window.innerHeight);
+  canvas.width  = win;
+  canvas.height = win;
+
+
+  ctx.setTransform( 1,0,0,1,0,0 );
+  ctx.setTransform( 0, -win/2.0/pltmax, -win/2.0/pltmax, 0, win/2.0, win/2.0 );
+}
+/********************************************************************************/
+function parse_url_with_params()
+{
+  var sparams =  window.location.search;
+  if( !sparams ){
+    return;
+  }
+  var n0_in=0,n1_in=0,n2_in=0,n3_in=0;
+  var r;
+
+
+  r  = sparams.match( /[\?\&]n0=([^&#]*)/ );
+  if(r){
+    n0_in  = Math.round( Math.abs( +r[1]  ) );
+  }
+
+
+  r  = sparams.match( /[\?\&]n1=([^&#]*)/ );
+  if(r){
+    n1_in  = Math.round( Math.abs( +r[1]  ) );
+  }
+
+  r  = sparams.match( /[\?\&]n2=([^&#]*)/ );
+  if(r){
+    n2_in  = Math.round( Math.abs( +r[1]  ) );
+  }
+
+  r  = sparams.match( /[\?\&]n3=([^&#]*)/ );
+  if(r){
+    n3_in  = Math.round( Math.abs( +r[1]  ) );
+  }
+
+  if( n0_in!=0 && n1_in!=0 && n2_in!=0 && n3_in!=0 ){
+    params.p_n0.value = n0_in;
+    params.p_n1.value = n1_in;
+    params.p_n2.value = n2_in;
+    params.p_n3.value = n3_in;
+  }
+
+
+  r  = sparams.match( /[\?\&]h=([^&#]*)/ );
+  if(r){
+    params.p_h.value = +r[1] ;
+  }
+
+  r  = sparams.match( /[\?\&]p=([^&#]*)/ );
+  if(r){
+    params.p_p.value = +r[1] ;
+  }
+
+  r  = sparams.match( /[\?\&]phi=([^&#]*)/ );
+  if(r){
+    params.p_phi.value = +r[1] ;
+  }
+
+  r  = sparams.match( /[\?\&]hole=([^&#]*)/ );
+  if(r){
+    params2.p_hole.value = +r[1] ;
+  }
+
+}
+/********************************************************************************/
+function print_url_with_params()
+{
+  var url      = window.location.href;     // Returns full URL (https://example.com/path/example.html)
+  url = url.replace( /\?.*/, '' );
+  url = url+'?'+
+    'n0='+n0.toString()+'&amp'+
+    'n1='+n1.toString()+'&amp'+
+    'n2='+n2.toString()+'&amp'+
+    'n3='+n3.toString()+'&amp'+
+    'h='+h.toString()+'&amp'+
+    'p='+p.toString()+'&amp'+
+    'phi='+phi_input.toString()+'&amp'+
+    'hole='+hole_input.toString();
+  document.getElementById('url_load_params').innerHTML = url;
+}
+/********************************************************************************/
+function get_params()
+{
+  n0 = Math.round( Math.abs( params.p_n0.value ) );
+  params.p_n0.value = n0;
+
+  n1 = Math.round( Math.abs( params.p_n1.value ) );
+  params.p_n1.value = n1;
+
+  n2 = Math.round( Math.abs( params.p_n2.value ) );
+  params.p_n2.value = n2;
+
+  n3 = Math.round( Math.abs( params.p_n3.value ) );
+  params.p_n3.value = n3;
+
+  pltmax = Math.max(n0,n1,n2,n3) * 1.05;
+
+  linwid = 2 * pltmax / 250.0;
+
+  h = params.p_h.value;
+  var h_max=0.975 * ( 1 - n2 / n1 );
+  if( h < -h_max ){
+    h = -h_max;
+    params.p_h.value = h;
+  }
+  if( h > h_max ){
+    h = h_max;
+    params.p_h.value = h;
+  }
+
+  hole_input = params2.p_hole.value;
+  hole = Math.abs( hole_input / 2.0 / modulo_mm );
+
+  p   = params.p_p.value;
+  if( hole != 0 ){
+    var p_min = 1.0 - hole/n3;
+    if( p < 0 || p > p_min ){
+      p = p_min;
+      params.p_p.value = p;
+    }
+  }
+
+  phi_input = params.p_phi.value;
+  phi = phi_input / 180.0 * Math.PI;
+
+
+  var a = n1 / js_gcd(n0,n1);
+  var b = n1 * n3 / js_gcd( n0*n2, n1*n3 );
+  T  = js_lcm( a, b );
+  T1 = ( T * n0 ) / n1;
+  T3 = ( T * n0 * n2 ) / (n1 * n3);
+  nsymm = js_gcd( T1, T3 );
+
+  frqs_in.fin_T1.value = T1;
+  frqs_in.fin_T3.value = T3;
+  frqs_in.fin_T.value = T;
+
+  // print_url_with_params();
+}
+/********************************************************************************/
+function sr_plot_circles()
+{
+  ctx.lineWidth=0.125 * linwid;
+
+  ctx.strokeStyle = "rgb(0,0,0)"; //"rgb(34,112,42)";
+  ctx.fillStyle = "rgb(255,253,138)";  // Outer Hoop Color
+  ctx.beginPath();
+  ctx.arc(0,0,n0, 0, 2 * Math.PI, false);
+  ctx.moveTo(n0+10,0);
+  ctx.arc(0,0,n0+10, 2 * Math.PI, 0, true);
+  ctx.fill();
+  ctx.stroke();
+  ctx.closePath();
+
+  ctx.strokeStyle = "rgb(0,0,0)"; //"rgb(129,90,33)";
+  ctx.fillStyle = "rgb(244,227,202)";   // Middle Hoop Color
+  ctx.beginPath();
+  ctx.arc(n0-n1,0, n1, 0, 2 * Math.PI, false);
+  ctx.moveTo(n0-n1+n1*h+n2,0);
+  ctx.arc(n0-n1+n1*h,0,n2, 2 * Math.PI, 0, true);
+  ctx.fill();
+  ctx.stroke();
+  ctx.closePath();
+
+  var xc = n0-n1+n1*h + n2 -n3;
+  var yc = 0;
+
+  ctx.strokeStyle = "rgb(0,0,0)";  //"rgb(46,106,112)";
+  ctx.fillStyle = "rgb(136,247,249)";  // Gear Color
+  ctx.beginPath();
+  ctx.arc(xc,yc,n3, 0, 2 * Math.PI, false);
+  xc += p*n3*Math.cos(phi);
+  yc += p*n3*Math.sin(phi);
+  ctx.moveTo(xc+hole,yc);
+  ctx.arc(xc,yc,hole, 2 * Math.PI, 0, true );
+  ctx.fill();
+  ctx.stroke();
+  ctx.closePath();
+
+  ctx.strokeStyle = "rgb(124,26,244)";  // Stroke of Pen Hole Ring Color
+  ctx.beginPath();
+  ctx.arc(xc,yc,hole, 0, 2 * Math.PI, false);
+  ctx.stroke();
+  ctx.closePath();
+}
+/********************************************************************************/
+function sr_show_nfo()
+{
+  ctx.save();
+
+  ctx.strokeStyle = "black";
+  ctx.fillStyle = "black";
+  ctx.font = '12px sans-serif';
+  ctx.setTransform( 0, -1,1,0, 0,win );
+  ctx.fillText('',10,win-6);
+  // ctx.fillText('Glagolj Roulette Plot v1.10 mod. Spiromatt',10,win-6);
+
+
+
+
+  ctx.setTransform( 1, 0,0,1, 0,0 );
+  ctx.font = '24px sans-serif';
+  var str = '('+n0.toString()+':'+n1.toString()+';'+n2.toString()+':'+n3.toString()+')';
+  ctx.fillText(str,4,32);
+  // str = 'F=('+T1.toString()+'/'+T.toString()+','+T3.toString()+'/'+T.toString()+')';
+  str = '';
+  ctx.fillText(str,4,win-4);
+
+  ctx.restore();
+
+  document.getElementById('res_F').innerHTML = ' F=('+T1.toString()+'/'+T.toString()+','+T3.toString()+'/'+T.toString()+')';
+  document.getElementById('res_symm').innerHTML = ' n<sub>symm</sub>='+nsymm.toString();
+  document.getElementById('frqs_input_error').innerHTML = '.';
+
+  if(1){
+    var nh    = js_gcd( T1, T );
+    var n0scl = T1 / nh;
+    var n1scl = T  / nh;
+    var n2scl = T3 / nsymm;
+    var n3scl = T1 / nsymm;
+    document.getElementById('tmp_v0').innerHTML = 'n0='+n0scl.toString()+'a';
+    document.getElementById('tmp_v1').innerHTML = 'n1='+n1scl.toString()+'a';
+    document.getElementById('tmp_v2').innerHTML = 'n2='+n2scl.toString()+'b';
+    document.getElementById('tmp_v3').innerHTML = 'n3='+n3scl.toString()+'b';
+  }
+  if(1){
+    var c_p = T1 - nsymm*(T1 - T);
+    var c_q = T3 - T1;
+    var n_c = js_gcd( c_p, c_q );
+    var l   = n_c / nsymm;
+    var m   = T1 - T;
+    c_p = c_p / n_c;
+    c_q = c_q / n_c;
+    document.getElementById('sim_C').innerHTML = ' C='+c_p.toString()+'/'+c_q.toString()+', &nbsp; ';
+    document.getElementById('sim_ns').innerHTML = ' n<sub>symm</sub>='+nsymm.toString()+', &nbsp; ';
+    document.getElementById('sim_nC').innerHTML = ' n<sub>C</sub>='+n_c.toString()+', &nbsp; ';
+    document.getElementById('sim_m').innerHTML = ' m='+m.toString()+', &nbsp; ';
+    document.getElementById('sim_l').innerHTML = ' l='+l.toString()+'. &nbsp; ';
+  }
+}
+/********************************************************************************/
+
+// From https://gist.github.com/fernandoc1/bf8b764585b8fe01d38dffc6ce02981a
+function getRandomColor() {
+    var letters = '0123456789ABCDEF';
+    var color = '#';
+    for (var i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)];
+    }
+    return '#000000';
+}
+
+
+//*****************************
+
+function sr_update_plot()
+{
+  get_params();
+  canvas_resize();
+
+  /* ctx.clearRect(0, 0, canvas.width, canvas.height); */
+  if( params2.show_circles.checked ){
+    // sr_plot_circles();     -- Uncomment to show circles.
+  }
+  sr_show_nfo();
+
+  ctx.lineWidth = 0.0625 * linwid;   // Line Width of Output
+
+  var i;
+  var tend = T * 2 * Math.PI;
+  var npts = T * pt_dens;
+  var m0   = n0 / n1;
+  var m1   = n2 / n3;
+
+  xmax = 0;
+  ymax = 0;
+  var rsav = 0;
+
+  var jcurv;
+  var ncurv = params2.show_f0.checked ? 2 : 1;
+
+  ctx.strokeStyle = getRandomColor();  /// Original was 'black'
+
+  for( jcurv=0 ; jcurv < ncurv ; jcurv++ ){
+    if( jcurv > 0 ){
+      ctx.strokeStyle = 'yellow';
+    }
+    ctx.beginPath();
+    var rp = jcurv > 0 ? 0 : n3*p;
+
+    for( i=0 ; i<=npts ; i++ ){
+      var t  = i * tend / npts;
+      var t1 = m0 * t;
+      var t2 = t1 + Math.atan2(  h*Math.sin(t1), 1.0 - h*Math.cos(t1) );
+      var t3 = m1 * t2;
+      var a0 = t  - t1;
+      var a1 = a0 + t2 - t3 + phi;
+
+      var x = (n0-n1)*Math.cos(t) + n1*h*Math.cos(a0) + (n2-n3)*Math.cos(a0+t2) + rp*Math.cos(a1);
+      var y = (n0-n1)*Math.sin(t) + n1*h*Math.sin(a0) + (n2-n3)*Math.sin(a0+t2) + rp*Math.sin(a1);
+
+      if(hole != 0){
+	var xt = (n0-n1)*Math.cos(t) + n1*h*Math.cos(a0) + n2*Math.cos(a0+t2);
+	var yt = (n0-n1)*Math.sin(t) + n1*h*Math.sin(a0) + n2*Math.sin(a0+t2);
+	var ang = Math.atan2( yt-y, xt-x );
+	x += hole * Math.cos(ang);
+	y += hole * Math.sin(ang);
+  }
+
+      var r = x*x + y*y;
+      if( r > rsav ){
+	rsav = r;
+	xmax = x;
+	ymax = y;
+      }
+
+      if( i == 0 ){
+	ctx.moveTo(x,y);
+      }
+      else{
+	ctx.lineTo(x,y);
+      }
+    }
+
+    ctx.stroke();
+    ctx.closePath();
+
+  }
+
+  ctx.strokeStyle = 'black';
+
+
+  if( params2.show_symm.checked && nsymm > 1 ){
+    ctx.strokeStyle = 'gray';
+    ctx.beginPath();
+    var ang = Math.atan2( ymax, xmax );
+    var rmax = Math.sqrt( xmax*xmax + ymax*ymax )
+    for( i=0 ; i<nsymm ; i++ ){
+      var r = Math.max( 1.1*rmax, 1.1 * n0 );
+      ctx.moveTo(0,0);
+      ctx.lineTo(r*Math.cos(ang+i*2*Math.PI/nsymm),r*Math.sin(ang+i*2*Math.PI/nsymm));
+    }
+    ctx.stroke();
+    ctx.closePath();
+  }
+
+  ctx.strokeStyle = 'black';
+}
+/********************************************************************************/
+/********************************************************************************/
+/********************************************************************************/
+function srset(in_n0,in_n1,in_n2,in_n3,in_h,in_p){
+  params.p_n0.value = in_n0;
+  params.p_n1.value = in_n1;
+  params.p_n2.value = in_n2;
+  params.p_n3.value = in_n3;
+  params.p_h.value = in_h;
+  params.p_p.value = in_p;
+  params.p_phi.value = 0;
+  params2.p_hole.value = 3;
+
+  sr_update_plot();
+}
+/********************************************************************************/
+/********************************************************************************/
+/********************************************************************************/
+function sr_frqs_update(){
+  var in_T1 = Math.round( Math.abs( frqs_in.fin_T1.value ) );
+  var in_T3 = Math.round( Math.abs( frqs_in.fin_T3.value ) );
+  var in_T  = Math.round( Math.abs( frqs_in.fin_T.value ) );
+
+  if( in_T1 >= in_T3 || in_T >= in_T1 ){
+    document.getElementById('frqs_input_error').innerHTML = 'ERROR: must be T&ltT1&ltT3';
+    return;
+  }
+  document.getElementById('frqs_input_error').innerHTML = '.';
+
+  var c  = js_gcd( js_gcd( in_T1, in_T3 ), in_T );
+  in_T1 /= c;
+  in_T3 /= c;
+  in_T  /= c;
+
+  var  n1n2fac = 2.0;
+
+  var ns = js_gcd( in_T1, in_T3 );
+  var nh = js_gcd( in_T1, in_T  );
+
+  var bmin  = Math.ceil( 8 * ns / (in_T3 - in_T1 ) ); /* at least 8 teeth difference! */
+  var b     = Math.max( bmin, 1, Math.ceil( 12 * ns / in_T1 ) );
+  var in_n3 = ( b * in_T1 ) / ns;
+  var in_n2 = ( b * in_T3 ) / ns;
+
+  var in_n0;
+  var in_n1 = Math.round( in_n2 * n1n2fac );
+  var amin  = Math.ceil( 8 * nh / (in_T1 - in_T ) ); /* at least 8 teeth difference! */
+  var a     = Math.max( amin, 1, Math.ceil( nh * in_n1 / in_T ) );
+  in_n1 = ( a * in_T  ) / nh;
+  in_n0 = ( a * in_T1 ) / nh;
+
+  var b_new = Math.floor( in_n1 * ns / ( in_T3 * n1n2fac ) );
+  if( b_new > b ){
+    b     = b_new;
+    in_n3 = ( b * in_T1 ) / ns;
+    in_n2 = ( b * in_T3 ) / ns;
+  }
+
+  /*
+  document.getElementById('tmp_v0').innerHTML = a.toString();
+  document.getElementById('tmp_v1').innerHTML = b.toString();
+  document.getElementById('tmp_v2').innerHTML = ns.toString();
+  document.getElementById('tmp_v3').innerHTML = nh.toString();
+  */
+
+  params.p_n0.value = in_n0;
+  params.p_n1.value = in_n1;
+  params.p_n2.value = in_n2;
+  params.p_n3.value = in_n3;
+
+  sr_update_plot();
+}
+/********************************************************************************/
+/********************************************************************************/
+/********************************************************************************/
+function sr_save_image()
+{
+  /* https://stackoverflow.com/questions/11112321/how-to-save-canvas-as-png-image */
+  var str = '('+n0.toString()+':'+n1.toString()+';'+n2.toString()+':'+n3.toString()+')';
+  var dataURL = canvas.toDataURL("image/png");
+  var newTab = window.open('about:blank',str);
+  newTab.document.write("<img src='" + dataURL + "' alt='"+str+"'/>");
+}
+/********************************************************************************/
+/********************************************************************************/
+/********************************************************************************/
+function js_gcd(x, y) {
+  x = Math.abs(x);
+  y = Math.abs(y);
+  while(y) {
+    var t = y;
+    y = x % y;
+    x = t;
+  }
+  return x;
+}
+function js_lcm(x, y) {
+  return x * y / js_gcd(x, y);
+}
+/********************************************************************************/
+parse_url_with_params();
+sr_update_plot();
+
